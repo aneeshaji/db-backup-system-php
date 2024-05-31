@@ -1,9 +1,48 @@
 <?php
+/**
+ * This file contains the Backup_Database function wich performs
+ * a partial or complete backup of any given MySQL database
+ * @author Aneesh Ajithkumar <dev.aneeshajithkumar@gmail.com>
+ * @version 1.0
+ */
+
 
 require 'vendor/autoload.php'; // Include the AWS SDK for PHP
 
+// Load the .env file
+$dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
+$dotenv->load();
+
 use Aws\S3\S3Client;
 use Aws\Exception\AwsException;
+
+/**
+ * Database Backup For First DataBase
+ */
+$host = $_ENV['BACKUP_DB_HOST'];
+$username = $_ENV['BACKUP_DB_USERNAME'];
+$password = $_ENV['BACKUP_DB_PASSWORD'];
+$dbName = $_ENV['BACKUP_DB_NAME'];
+
+$backupDir = 'db-backups';
+$tables = '*';
+$ignoreTables = ['tbl_token_auth', 'token_auth'];
+$charset = 'utf8';
+$gzipBackupFile = true;
+$disableForeignKeyChecks = true;
+$batchSize = 1000;
+
+backupDatabase($host, 
+$username, 
+$password, 
+$dbName,
+$backupDir, 
+$tables, 
+$ignoreTables, 
+$charset, 
+$gzipBackupFile, 
+$disableForeignKeyChecks, 
+$batchSize);
 
 /**
  * Perform a complete or partial backup of a MySQL database
@@ -249,21 +288,4 @@ function backupDatabase(
 
     return true;
 }
-
-/**
- * Example usage of the function
- */
-$host = 'localhost';
-$username = 'root';
-$password = '';
-$dbName = 'jqrms';
-$backupDir = 'myphp-backup-files';
-$tables = '*';
-$ignoreTables = ['tbl_token_auth', 'token_auth'];
-$charset = 'utf8';
-$gzipBackupFile = true;
-$disableForeignKeyChecks = true;
-$batchSize = 1000;
-
-backupDatabase($host, $username, $password, $dbName, $backupDir, $tables, $ignoreTables, $charset, $gzipBackupFile, $disableForeignKeyChecks, $batchSize);
 ?>
