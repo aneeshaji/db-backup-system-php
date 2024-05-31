@@ -54,6 +54,3 @@ You can change the backup filename and subdirectory editing these lines. Don't f
 	define("DISABLE_FOREIGN_KEY_CHECKS", true); // Set to true if you are having foreign key constraint fails
 
 -----
-Project at GitHub: https://github.com/daniloaz/myphp-backup
-
-(c) Daniel López Azaña, 2012-2017 (http://www.daniloaz.com)
