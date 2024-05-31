@@ -255,23 +255,20 @@ function backupDatabase(
                 obfPrint('Error gzipping backup file.');
                 return false;
             }
-            //$backupKey .= '.gz'; // Update the backup key to include the .gz extension
         }
 
         // Initialize the S3 client
         $s3Client = new S3Client([
             'version' => 'latest',
-            'region'  => 'ap-south-1',
+            'region'  => $_ENV['AWS_DEFAULT_REGION'],
             'credentials' => [
-                'key'    => 'AKIAVRUVQ6DE6QCLZUZM',
-                'secret' => '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',
+                'key'    => $_ENV['AWS_ACCESS_KEY_ID'],
+                'secret' => $_ENV['AWS_SECRET_ACCESS_KEY'],
             ],
         ]);
 
-        $s3Bucket = 'db-backup-manager';
+        $s3Bucket = $_ENV['AWS_BUCKET'];
         //$s3Key = $backupDir . '/' . $backupFile;
-
-        //print_r($result); die;
 
         // Upload the backup file to S3
         if ($gzipBackupFile) {
