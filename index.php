@@ -16,6 +16,7 @@ $dotenv->load();
 use Aws\S3\S3Client;
 use Aws\Exception\AwsException;
 
+
 /**
  * Database Backup For First DataBase
  */
@@ -43,6 +44,27 @@ $charset,
 $gzipBackupFile, 
 $disableForeignKeyChecks, 
 $batchSize);
+
+/**
+ * Logs a message to a log file with a timestamp and type.
+ * 
+ * @param string $message The message to log.
+ * @param string $type The type of the log message (INFO, ERROR, WARNING, etc.).
+ * @param string $logFile The file to log the message to.
+ */
+function logMessage($message, $type = 'INFO', $logFile = 'logs/app.log') {
+    // Ensure the log directory exists
+    if (!file_exists(dirname($logFile))) {
+        mkdir(dirname($logFile), 0777, true);
+    }
+
+    // Prepare the log message with a timestamp and type
+    $timestamp = date('Y-m-d H:i:s');
+    $logEntry = "[$timestamp] [$type] $message" . PHP_EOL;
+
+    // Write the log message to the log file
+    file_put_contents($logFile, $logEntry, FILE_APPEND | LOCK_EX);
+}
 
 /**
  * Perform a complete or partial backup of a MySQL database
@@ -76,11 +98,9 @@ function backupDatabase(
 ) {
     $output = '';
     $backupFile = 'db-backup-' . $dbName . '-' . date("Ymd_His", time()) . '.sql';
-
     function obfPrint($msg, $lineBreaksBefore = 0, $lineBreaksAfter = 1) {
         global $output;
         if (!$msg) return false;
-
         $msg = date("Y-m-d H:i:s") . ' - ' . $msg;
         $lineBreak = (php_sapi_name() != "cli") ? "<br />" : "\n";
         $output = '';
@@ -100,11 +120,12 @@ function backupDatabase(
                 'Key'    => $backupKey,
                 'Body'   => $sql,
             ]);
-    
+            logMessage('Backup file successfully saved to S3 '.$result['ObjectURL'], 'INFO');
             obfPrint('Backup file successfully saved to S3: ' . $result['ObjectURL'], 1, 1);
             return true;
         } catch (AwsException $e) {
             obfPrint('Error uploading backup file to S3: ' . $e->getMessage());
+            logMessage('Error uploading backup file to S3: ERROR - '. $e->getMessage(), 'ERROR');
             return false;
         }
     }
@@ -138,14 +159,19 @@ function backupDatabase(
 
     try {
         $conn = mysqli_connect($host, $username, $password, $dbName);
-        if (mysqli_connect_errno()) throw new Exception('ERROR connecting database: ' . mysqli_connect_error());
+        if (mysqli_connect_errno()) {
+            logMessage('Error connecting database: ERROR - '. mysqli_connect_error(), 'ERROR');
+            throw new Exception('ERROR connecting database: ' . mysqli_connect_error());
+        }
         if (!mysqli_set_charset($conn, $charset)) mysqli_query($conn, 'SET NAMES ' . $charset);
     } catch (Exception $e) {
+        logMessage('Error backing up database - '. $e->getMessage(), 'ERROR');
         print_r($e->getMessage());
         die();
     }
 
     try {
+        logMessage('Backup cron job started for database '.$dbName, 'INFO');
         if ($tables == '*') {
             $tables = array();
             $result = mysqli_query($conn, 'SHOW TABLES');
@@ -223,6 +249,7 @@ function backupDatabase(
             $sql .= "\n\n";
             obfPrint('OK');
         }
+        logMessage('Backup cron job completed for database '.$dbName, 'INFO');
 
         if ($disableForeignKeyChecks === true) $sql .= "SET foreign_key_checks = 1;\n";
         saveFile($backupDir, $backupFile, $sql);
@@ -253,6 +280,7 @@ function backupDatabase(
             $result = $gzippedFile = gzipBackupFile($backupDir, $backupFile);
             if (!$gzippedFile) {
                 obfPrint('Error gzipping backup file.');
+                logMessage('Error gzipping backup file for database '.$dbName, 'ERROR');
                 return false;
             }
         }
@@ -268,7 +296,6 @@ function backupDatabase(
         ]);
 
         $s3Bucket = $_ENV['AWS_BUCKET'];
-        //$s3Key = $backupDir . '/' . $backupFile;
 
         // Upload the backup file to S3
         if ($gzipBackupFile) {
@@ -279,6 +306,7 @@ function backupDatabase(
         }
 
     } catch (Exception $e) {
+        logMessage('Backup cron job encountered an error for database '.$dbName. 'ERROR - '. $e->getMessage(), 'ERROR');
         print_r($e->getMessage());
         return false;
     }
