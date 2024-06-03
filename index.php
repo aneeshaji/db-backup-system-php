@@ -20,10 +20,6 @@ use Aws\Exception\AwsException;
 /**
  * Database Backup For First DataBase
  */
-$host = $_ENV['BACKUP_DB_HOST'];
-$username = $_ENV['BACKUP_DB_USERNAME'];
-$password = $_ENV['BACKUP_DB_PASSWORD'];
-$dbName = $_ENV['BACKUP_DB_NAME'];
 
 $backupDir = 'db-backups';
 $tables = '*';
@@ -33,7 +29,33 @@ $gzipBackupFile = true;
 $disableForeignKeyChecks = true;
 $batchSize = 1000;
 
-backupDatabase($host, 
+// For First Backup
+$host = $_ENV['BACKUP_1_DB_HOST'];
+$username = $_ENV['BACKUP_1_DB_USERNAME'];
+$password = $_ENV['BACKUP_1_DB_PASSWORD'];
+$dbName = $_ENV['BACKUP_1_DB_NAME'];
+
+backupDatabase(
+$host, 
+$username, 
+$password, 
+$dbName,
+$backupDir, 
+$tables, 
+$ignoreTables, 
+$charset, 
+$gzipBackupFile, 
+$disableForeignKeyChecks, 
+$batchSize);
+
+// For Second Backup
+$host = $_ENV['BACKUP_2_DB_HOST'];
+$username = $_ENV['BACKUP_2_DB_USERNAME'];
+$password = $_ENV['BACKUP_2_DB_PASSWORD'];
+$dbName = $_ENV['BACKUP_2_DB_NAME'];
+
+backupDatabase(
+$host, 
 $username, 
 $password, 
 $dbName,
@@ -64,6 +86,65 @@ function logMessage($message, $type = 'INFO', $logFile = 'logs/app.log') {
 
     // Write the log message to the log file
     file_put_contents($logFile, $logEntry, FILE_APPEND | LOCK_EX);
+}
+
+function obfPrint($msg, $lineBreaksBefore = 0, $lineBreaksAfter = 1) {
+    global $output;
+    if (!$msg) return false;
+    $msg = date("Y-m-d H:i:s") . ' - ' . $msg;
+    $lineBreak = (php_sapi_name() != "cli") ? "<br />" : "\n";
+    $output = '';
+
+    for ($i = 0; $i < $lineBreaksBefore; $i++) $output .= $lineBreak;
+    $output .= $msg;
+    for ($i = 0; $i < $lineBreaksAfter; $i++) $output .= $lineBreak;
+
+    echo '<br />'.$output;
+    flush();
+}
+
+function saveFileToS3($s3Client, $s3Bucket, $backupKey, $sql) {
+    try {
+        $result = $s3Client->putObject([
+            'Bucket' => $s3Bucket,
+            'Key'    => $backupKey,
+            'Body'   => $sql,
+        ]);
+        logMessage('Backup file successfully saved to S3 '.$result['ObjectURL'], 'INFO');
+        obfPrint('Backup file successfully saved to S3: ' . $result['ObjectURL'], 1, 1);
+        return true;
+    } catch (AwsException $e) {
+        obfPrint('Error uploading backup file to S3: ' . $e->getMessage());
+        logMessage('Error uploading backup file to S3: ERROR - '. $e->getMessage(), 'ERROR');
+        return false;
+    }
+}
+
+function saveFile($backupDir, $backupFile, &$sql) {
+    if (!$sql) return false;
+    if (!file_exists($backupDir)) mkdir($backupDir, 0777, true);
+    file_put_contents($backupDir . '/' . $backupFile, $sql, FILE_APPEND | LOCK_EX);
+    return true;
+}
+
+function gzipBackupFile($backupDir, $backupFile, $level = 9) {
+    $source = $backupDir . '/' . $backupFile;
+    $dest =  $source . '.gz';
+
+    obfPrint('Gzipping backup file to ' . $dest . '... ', 1, 0);
+    $mode = 'wb' . $level;
+
+    if ($fpOut = gzopen($dest, $mode)) {
+        if ($fpIn = fopen($source, 'rb')) {
+            while (!feof($fpIn)) gzwrite($fpOut, fread($fpIn, 1024 * 256));
+            fclose($fpIn);
+        } else return false;
+        gzclose($fpOut);
+        if (!unlink($source)) return false;
+    } else return false;
+
+    obfPrint('OK');
+    return $dest;
 }
 
 /**
@@ -98,65 +179,6 @@ function backupDatabase(
 ) {
     $output = '';
     $backupFile = 'db-backup-' . $dbName . '-' . date("Ymd_His", time()) . '.sql';
-    function obfPrint($msg, $lineBreaksBefore = 0, $lineBreaksAfter = 1) {
-        global $output;
-        if (!$msg) return false;
-        $msg = date("Y-m-d H:i:s") . ' - ' . $msg;
-        $lineBreak = (php_sapi_name() != "cli") ? "<br />" : "\n";
-        $output = '';
-
-        for ($i = 0; $i < $lineBreaksBefore; $i++) $output .= $lineBreak;
-        $output .= $msg;
-        for ($i = 0; $i < $lineBreaksAfter; $i++) $output .= $lineBreak;
-
-        echo $output;
-        flush();
-    }
-
-    function saveFileToS3($s3Client, $s3Bucket, $backupKey, $sql) {
-        try {
-            $result = $s3Client->putObject([
-                'Bucket' => $s3Bucket,
-                'Key'    => $backupKey,
-                'Body'   => $sql,
-            ]);
-            logMessage('Backup file successfully saved to S3 '.$result['ObjectURL'], 'INFO');
-            obfPrint('Backup file successfully saved to S3: ' . $result['ObjectURL'], 1, 1);
-            return true;
-        } catch (AwsException $e) {
-            obfPrint('Error uploading backup file to S3: ' . $e->getMessage());
-            logMessage('Error uploading backup file to S3: ERROR - '. $e->getMessage(), 'ERROR');
-            return false;
-        }
-    }
-
-    function saveFile($backupDir, $backupFile, &$sql) {
-        if (!$sql) return false;
-        if (!file_exists($backupDir)) mkdir($backupDir, 0777, true);
-        file_put_contents($backupDir . '/' . $backupFile, $sql, FILE_APPEND | LOCK_EX);
-        return true;
-    }
-
-    function gzipBackupFile($backupDir, $backupFile, $level = 9) {
-        $source = $backupDir . '/' . $backupFile;
-        $dest =  $source . '.gz';
-
-        obfPrint('Gzipping backup file to ' . $dest . '... ', 1, 0);
-        $mode = 'wb' . $level;
-
-        if ($fpOut = gzopen($dest, $mode)) {
-            if ($fpIn = fopen($source, 'rb')) {
-                while (!feof($fpIn)) gzwrite($fpOut, fread($fpIn, 1024 * 256));
-                fclose($fpIn);
-            } else return false;
-            gzclose($fpOut);
-            if (!unlink($source)) return false;
-        } else return false;
-
-        obfPrint('OK');
-        return $dest;
-    }
-
     try {
         $conn = mysqli_connect($host, $username, $password, $dbName);
         if (mysqli_connect_errno()) {
